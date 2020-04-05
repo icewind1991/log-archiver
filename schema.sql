@@ -37,3 +37,20 @@ CREATE INDEX logs_raw_players_idx
     ON logs_raw USING GIN (extract_players(json));
 
 -- usage: select id from logs_raw where extract_players(json) @> ARRAY['[U:1:64229260]'];
+
+
+-- convert a normalized steamid into the format used in the provided json
+
+CREATE FUNCTION un_normalize_steam_id(steamid TEXT, log JSONB) RETURNS TEXT AS $$
+DECLARE
+    player TEXT;
+BEGIN
+    FOR player in SELECT jsonb_object_keys(log->'players')
+        LOOP
+            IF normalize_steam_id(player) = steamid THEN RETURN player; END IF;
+        END LOOP;
+    RETURN '';
+END; $$
+    LANGUAGE PLPGSQL IMMUTABLE;
+
+-- example: SELECT id, json->'players'->un_normalize_steam_id('[U:1:64229260]', json)->'drops' from logs_raw where extract_players(json) @> ARRAY['[U:1:64229260]'];
