@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+
 CREATE TABLE logs_raw (
   id           INTEGER                     NOT NULL,
   json         JSONB                       NOT NULL,
@@ -149,6 +151,9 @@ CREATE TABLE player_names (
 CREATE UNIQUE INDEX player_names_steam_id_name_idx
     ON player_names USING BTREE (steam_id, name);
 
+CREATE INDEX player_names_search_idx
+    ON player_names USING GIN (name gin_trgm_ops);
+
 CREATE OR REPLACE FUNCTION update_player_names() RETURNS trigger AS $$
 BEGIN
     INSERT INTO player_names (steam_id, name, count, use_time)
@@ -181,3 +186,7 @@ CREATE MATERIALIZED VIEW user_names AS
 
 CREATE UNIQUE INDEX user_names_steam_id_idx
     ON user_names USING BTREE (steam_id);
+
+CREATE MATERIALIZED VIEW global_stats AS
+    SELECT SUM(drops) as drops, SUM(ubers) as ubers, SUM(games) as games, SUM(medic_time) as medic_time
+    FROM medic_stats;
