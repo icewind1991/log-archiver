@@ -135,7 +135,7 @@ CREATE VIEW log_player_names AS
 SELECT
     id,
     normalize_steam_id(p.key) as steam_id,
-    p.value AS name,
+    p.value #>> '{}' AS name,
     (json->'info'->'total_length')::INTEGER AS length
 FROM logs_raw, jsonb_each(json->'names') p;
 
@@ -166,3 +166,18 @@ CREATE TRIGGER update_names_on_log
     AFTER INSERT OR UPDATE ON logs_raw
     FOR EACH ROW
 EXECUTE PROCEDURE update_player_names();
+
+CREATE MATERIALIZED VIEW user_names AS
+    WITH names AS
+         (
+             select name, count, steam_id,
+                    rank() over (partition by steam_id order by steam_id, count desc) rn
+             from player_names
+         )
+    SELECT steam_id, MAX(name) as name
+    FROM names
+    WHERE rn = 1
+    GROUP BY steam_id;
+
+CREATE UNIQUE INDEX user_names_steam_id_idx
+    ON user_names USING BTREE (steam_id);
