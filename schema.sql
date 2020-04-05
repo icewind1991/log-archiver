@@ -120,8 +120,6 @@ CREATE TRIGGER update_stats_on_log
     FOR EACH ROW
 EXECUTE PROCEDURE update_medic_stats();
 
--- 722426
-
 CREATE VIEW log_medic_stats AS
     SELECT
         id,
@@ -133,5 +131,38 @@ CREATE VIEW log_medic_stats AS
     FROM logs_raw, jsonb_each(json->'players') p
     WHERE (p.value->'drops')::INTEGER > 0 OR (p.value->'ubers')::INTEGER > 0;
 
-CREATE INDEX logs_medic_steamid_idx
-    ON log_medic_stats USING BTREE (steamid);
+CREATE VIEW log_player_names AS
+SELECT
+    id,
+    normalize_steam_id(p.key) as steam_id,
+    p.value AS name,
+    (json->'info'->'total_length')::INTEGER AS length
+FROM logs_raw, jsonb_each(json->'names') p;
+
+CREATE TABLE player_names (
+    steam_id    TEXT                        NOT NULL,
+    name        TEXT                        NOT NULL,
+    count       INTEGER                     NOT NULL,
+    use_time    INTEGER                     NOT NULL
+);
+
+CREATE UNIQUE INDEX player_names_steam_id_name_idx
+    ON player_names USING BTREE (steam_id, name);
+
+CREATE OR REPLACE FUNCTION update_player_names() RETURNS trigger AS $$
+BEGIN
+    INSERT INTO player_names (steam_id, name, count, use_time)
+        (SELECT steam_id, name, 1, length FROM log_player_names WHERE id = NEW.id LIMIT 1)
+    ON CONFLICT (steam_id, name) DO
+        UPDATE SET count = player_names.count + 1,
+                   use_time = player_names.use_time + (SELECT MAX(length) FROM log_player_names WHERE id = NEW.id AND log_player_names.steam_id = player_names.steam_id);
+
+    RETURN NEW;
+END;
+$$
+    LANGUAGE PLPGSQL;
+
+CREATE TRIGGER update_names_on_log
+    AFTER INSERT OR UPDATE ON logs_raw
+    FOR EACH ROW
+EXECUTE PROCEDURE update_player_names();
