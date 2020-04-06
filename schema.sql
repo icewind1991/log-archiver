@@ -83,7 +83,9 @@ CREATE TABLE medic_stats (
     heals       INTEGER                     NOT NULL,
     drops       INTEGER                     NOT NULL,
     ubers       INTEGER                     NOT NULL,
-    medic_time  INTEGER                     NOT NULL
+    medic_time  INTEGER                     NOT NULL,
+    dpu         NUMERIC NOT NULL GENERATED ALWAYS AS (dpu(drops, ubers)) STORED,
+    dps         NUMERIC NOT NULL GENERATED ALWAYS AS (dpu(drops, medic_time)) STORED
 );
 
 CREATE UNIQUE INDEX medic_stats_steam_id_idx
@@ -100,6 +102,32 @@ CREATE INDEX medic_stats_ubers_idx
 
 CREATE INDEX medic_stats_medic_time_idx
     ON medic_stats USING BTREE (medic_time);
+
+CREATE INDEX medic_stats_dpu_idx
+    ON medic_stats USING BTREE (dpu);
+
+CREATE INDEX medic_stats_dps_idx
+    ON medic_stats USING BTREE (dps);
+
+CREATE OR REPLACE FUNCTION dpu(drops INTEGER, ubers INTEGER) RETURNS NUMERIC AS $$
+BEGIN
+    IF ubers = 0 THEN
+        return 0;
+    ELSE
+        return drops::NUMERIC / ubers::NUMERIC;
+    END IF;
+END; $$
+    LANGUAGE PLPGSQL IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION dps(drops INTEGER, medic_time INTEGER) RETURNS NUMERIC AS $$
+BEGIN
+    IF medic_time = 0 THEN
+        return 0;
+    ELSE
+        return drops::NUMERIC / medic_time::NUMERIC;
+    END IF;
+END; $$
+    LANGUAGE PLPGSQL IMMUTABLE;
 
 CREATE OR REPLACE FUNCTION update_medic_stats() RETURNS trigger AS $$
 BEGIN
