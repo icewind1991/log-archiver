@@ -79,13 +79,14 @@ END; $$
 
 CREATE TABLE medic_stats (
     steam_id    TEXT                        NOT NULL,
-    games       INTEGER                     NOT NULL,
-    heals       INTEGER                     NOT NULL,
-    drops       INTEGER                     NOT NULL,
-    ubers       INTEGER                     NOT NULL,
-    medic_time  INTEGER                     NOT NULL,
-    dpu         NUMERIC NOT NULL GENERATED ALWAYS AS (dpu(drops, ubers)) STORED,
-    dps         NUMERIC NOT NULL GENERATED ALWAYS AS (dpu(drops, medic_time)) STORED
+    games       BIGINT                      NOT NULL,
+    heals       BIGINT                      NOT NULL,
+    drops       BIGINT                      NOT NULL,
+    ubers       BIGINT                      NOT NULL,
+    medic_time  BIGINT                      NOT NULL,
+    dpu         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, ubers)) STORED,
+    dps         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, medic_time)) STORED,
+    dpg         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, games)) STORED,
 );
 
 CREATE UNIQUE INDEX medic_stats_steam_id_idx
@@ -109,22 +110,12 @@ CREATE INDEX medic_stats_dpu_idx
 CREATE INDEX medic_stats_dps_idx
     ON medic_stats USING BTREE (dps);
 
-CREATE OR REPLACE FUNCTION dpu(drops INTEGER, ubers INTEGER) RETURNS NUMERIC AS $$
+CREATE OR REPLACE FUNCTION dpx(drops BIGINT, x BIGINT) RETURNS NUMERIC AS $$
 BEGIN
-    IF ubers = 0 THEN
+    IF x = 0 THEN
         return 0;
     ELSE
-        return drops::NUMERIC / ubers::NUMERIC;
-    END IF;
-END; $$
-    LANGUAGE PLPGSQL IMMUTABLE;
-
-CREATE OR REPLACE FUNCTION dps(drops INTEGER, medic_time INTEGER) RETURNS NUMERIC AS $$
-BEGIN
-    IF medic_time = 0 THEN
-        return 0;
-    ELSE
-        return drops::NUMERIC / medic_time::NUMERIC;
+        return drops::NUMERIC / x::NUMERIC;
     END IF;
 END; $$
     LANGUAGE PLPGSQL IMMUTABLE;
@@ -154,12 +145,12 @@ CREATE VIEW log_medic_stats AS
     SELECT
         id,
         normalize_steam_id(p.key) as steamid,
-        (p.value->'drops')::INTEGER AS drops,
-        (p.value->'heal')::INTEGER AS heals,
-        (p.value->'ubers')::INTEGER AS ubers,
-        (json->'info'->'total_length')::INTEGER AS length
+        (p.value->'drops')::BIGINT AS drops,
+        (p.value->'heal')::BIGINT AS heals,
+        (p.value->'ubers')::BIGINT AS ubers,
+        (json->'info'->'total_length')::BIGINT AS length
     FROM logs_raw, jsonb_each(json->'players') p
-    WHERE (p.value->'drops')::INTEGER > 0 OR (p.value->'ubers')::INTEGER > 0;
+    WHERE (p.value->'drops')::BIGINT > 0 OR (p.value->'ubers')::BIGINT > 0;
 
 CREATE VIEW log_player_names AS
 SELECT
@@ -172,8 +163,8 @@ FROM logs_raw, jsonb_each(json->'names') p;
 CREATE TABLE player_names (
     steam_id    TEXT                        NOT NULL,
     name        TEXT                        NOT NULL,
-    count       INTEGER                     NOT NULL,
-    use_time    INTEGER                     NOT NULL
+    count       BIGINT                      NOT NULL,
+    use_time    BIGINT                      NOT NULL
 );
 
 CREATE UNIQUE INDEX player_names_steam_id_name_idx
