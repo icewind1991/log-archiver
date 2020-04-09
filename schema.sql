@@ -86,7 +86,7 @@ CREATE TABLE medic_stats (
     medic_time  BIGINT                      NOT NULL,
     dpu         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, ubers)) STORED,
     dps         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, medic_time)) STORED,
-    dpg         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, games)) STORED,
+    dpg         NUMERIC NOT NULL GENERATED ALWAYS AS (dpx(drops, games)) STORED
 );
 
 CREATE UNIQUE INDEX medic_stats_steam_id_idx
@@ -123,7 +123,7 @@ END; $$
 CREATE OR REPLACE FUNCTION update_medic_stats() RETURNS trigger AS $$
 BEGIN
     INSERT INTO medic_stats (steam_id, games, heals, drops, ubers, medic_time)
-    (SELECT steamid, 1, heals, drops, ubers, length FROM log_medic_stats WHERE id = NEW.id LIMIT 1)
+    (SELECT steamid, 1, heals, drops, ubers, length FROM log_medic_stats WHERE id = NEW.id)
     ON CONFLICT (steam_id) DO
         UPDATE SET games = medic_stats.games + 1,
                    heals = medic_stats.heals + (SELECT SUM(heals) FROM log_medic_stats WHERE id = NEW.id AND log_medic_stats.steamid = medic_stats.steam_id),
@@ -176,7 +176,7 @@ CREATE INDEX player_names_search_idx
 CREATE OR REPLACE FUNCTION update_player_names() RETURNS trigger AS $$
 BEGIN
     INSERT INTO player_names (steam_id, name, count, use_time)
-        (SELECT steam_id, name, 1, length FROM log_player_names WHERE id = NEW.id LIMIT 1)
+        (SELECT steam_id, name, 1, length FROM log_player_names WHERE id = NEW.id)
     ON CONFLICT (steam_id, name) DO
         UPDATE SET count = player_names.count + 1,
                    use_time = player_names.use_time + (SELECT MAX(length) FROM log_player_names WHERE id = NEW.id AND log_player_names.steam_id = player_names.steam_id);
@@ -207,5 +207,5 @@ CREATE UNIQUE INDEX user_names_steam_id_idx
     ON user_names USING BTREE (steam_id);
 
 CREATE MATERIALIZED VIEW global_stats AS
-    SELECT SUM(drops) as drops, SUM(ubers) as ubers, SUM(games) as games, SUM(medic_time) as medic_time
+    SELECT SUM(drops)::BIGINT as drops, SUM(ubers)::BIGINT as ubers, SUM(games)::BIGINT as games, SUM(medic_time)::BIGINT as medic_time
     FROM medic_stats;
