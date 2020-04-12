@@ -1,5 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
+CREATE TYPE team AS ENUM ('Blue', 'Red');
+
+CREATE TYPE class_type AS ENUM ('scout', 'soldier', 'pyro', 'demoman', 'heavyweapons', 'engineer', 'medic', 'sniper', 'spy');
+
 CREATE TABLE logs_raw (
   id           INTEGER                     NOT NULL,
   json         JSONB                       NOT NULL,
@@ -17,6 +21,9 @@ CREATE INDEX logs_raw_json_player_idx
 
 CREATE INDEX logs_raw_success_idx
     ON logs_raw USING BTREE ((json->>'success'));
+
+CREATE INDEX logs_raw_map_idx
+    ON logs_raw USING BTREE ((clean_map_name(json->'info'->>'map')));
 
 -- convert STEAM_0:X:YYYYYYYY and [U:1:XXXXXXX] into only [U:1:XXXXXXX]
 
@@ -209,3 +216,269 @@ CREATE UNIQUE INDEX user_names_steam_id_idx
 CREATE MATERIALIZED VIEW global_stats AS
     SELECT SUM(drops)::BIGINT as drops, SUM(ubers)::BIGINT as ubers, SUM(games)::BIGINT as games, SUM(medic_time)::BIGINT as medic_time
     FROM medic_stats;
+
+CREATE FUNCTION clean_map_name(map TEXT) RETURNS TEXT AS $$
+        SELECT regexp_replace(map, '(_(a|b|beta|u|r|v|rc|final|comptf|ugc)?[0-9]*[a-z]?$)|([0-9]+[a-z]?$)', '', 'g');
+$$ LANGUAGE SQL;
+
+CREATE VIEW log_class_stats AS
+SELECT
+    id,
+    clean_map_name(json->'info'->>'map') as map,
+    (json->'team'->'Red'->'score' > json->'team'->'Blue'->'score')::BIGINT AS red_wins,
+    (json->'team'->'Red'->'score' < json->'team'->'Blue'->'score')::BIGINT AS red_wins,
+    (p.value->'heal')::BIGINT AS heals,
+    (p.value->'ubers')::BIGINT AS ubers,
+    (json->'info'->'total_length')::BIGINT AS length
+FROM logs_raw, jsonb_each(json->'players') p
+WHERE (p.value->'drops')::BIGINT > 0 OR (p.value->'ubers')::BIGINT > 0;
+
+CREATE OR REPLACE  FUNCTION get_team_score(json JSONB, team team) RETURNS BIGINT AS $$
+    SELECT coalesce((json->'teams'->(team::TEXT)->'score')::BIGINT, 0);
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE  FUNCTION get_class_kills(json JSONB, class_name class_type) RETURNS BIGINT AS $$
+    SELECT coalesce(sum((c.value->>'kills')::BIGINT)::BIGINT, 0) FROM jsonb_each(json->'players') p, jsonb_array_elements(p.value->'class_stats') c WHERE c.value->>'type' = class_name::TEXT AND LENGTH(c.value->>'kills') < 3;
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE  FUNCTION get_class_deaths(json JSONB, class_name class_type) RETURNS BIGINT AS $$
+    SELECT coalesce(sum((c.value->>'deaths')::BIGINT)::BIGINT, 0) FROM jsonb_each(json->'players') p, jsonb_array_elements(p.value->'class_stats') c WHERE c.value->>'type' = class_name::TEXT AND LENGTH(c.value->>'deaths') < 3;
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE  FUNCTION get_class_damage(json JSONB, class_name class_type) RETURNS BIGINT AS $$
+    SELECT coalesce(sum((c.value->>'dmg')::BIGINT)::BIGINT, 0) FROM jsonb_each(json->'players') p, jsonb_array_elements(p.value->'class_stats') c WHERE c.value->>'type' = class_name::TEXT AND LENGTH(c.value->>'dmg') < 5;
+$$ LANGUAGE SQL;
+
+CREATE OR REPLACE FUNCTION get_midfight_wins(json JSONB, team team) RETURNS BIGINT AS $$
+    SELECT count(*) FROM jsonb_array_elements(json->'rounds') r WHERE r->>'firstcap' = team::TEXT;
+$$ LANGUAGE SQL;
+
+CREATE FUNCTION get_wins(a_score BIGINT, b_score BIGINT) RETURNS BIGINT AS $$
+BEGIN
+    IF a_score > b_score THEN
+        return 1;
+    ELSE
+        return 0;
+    END IF;
+END;
+$$
+    LANGUAGE PLPGSQL;
+
+CREATE VIEW log_map_stats AS
+    SELECT
+        id,
+
+        clean_map_name(json->'info'->>'map') as map,
+        get_team_score(json, 'Red') AS red_score,
+        get_team_score(json, 'Blue') AS blue_score,
+        get_wins(get_team_score(json, 'Red'), get_team_score(json, 'Blue')) AS red_wins,
+        get_wins(get_team_score(json, 'Blue'), get_team_score(json, 'Red')) AS blue_wins,
+
+        get_midfight_wins(json, 'Red') as midfight_red,
+        get_midfight_wins(json, 'Blue') as midfight_blue,
+
+        get_class_kills(json, 'scout') as scout_kills,
+        get_class_kills(json, 'soldier') as soldier_kills,
+        get_class_kills(json, 'pyro') as pyro_kills,
+        get_class_kills(json, 'demoman') as demoman_kills,
+        get_class_kills(json, 'heavyweapons') as heavy_kills,
+        get_class_kills(json, 'engineer') as engineer_kills,
+        get_class_kills(json, 'medic') as medic_kills,
+        get_class_kills(json, 'sniper') as sniper_kills,
+        get_class_kills(json, 'spy') as spy_kills,
+
+        get_class_deaths(json, 'scout') as scout_deaths,
+        get_class_deaths(json, 'soldier') as soldier_deaths,
+        get_class_deaths(json, 'pyro') as pyro_deaths,
+        get_class_deaths(json, 'demoman') as demoman_deaths,
+        get_class_deaths(json, 'heavyweapons') as heavy_deaths,
+        get_class_deaths(json, 'engineer') as engineer_deaths,
+        get_class_deaths(json, 'medic') as medic_deaths,
+        get_class_deaths(json, 'sniper') as sniper_deaths,
+        get_class_deaths(json, 'spy') as spy_deaths,
+
+        get_class_damage(json, 'scout') as scout_damage,
+        get_class_damage(json, 'soldier') as soldier_damage,
+        get_class_damage(json, 'pyro') as pyro_damage,
+        get_class_damage(json, 'demoman') as demoman_damage,
+        get_class_damage(json, 'heavyweapons') as heavy_damage,
+        get_class_damage(json, 'engineer') as engineer_damage,
+        get_class_damage(json, 'medic') as medic_damage,
+        get_class_damage(json, 'sniper') as sniper_damage,
+        get_class_damage(json, 'spy') as spy_damage,
+
+        (json->'info'->'total_length')::BIGINT AS length
+    FROM logs_raw;
+
+CREATE TABLE map_stats (
+     map             TEXT                   NOT NULL,
+     count           BIGINT                 NOT NULL,
+     red_wins       BIGINT                 NOT NULL,
+     blue_wins      BIGINT                 NOT NULL,
+     red_score       BIGINT                 NOT NULL,
+     blue_score      BIGINT                 NOT NULL,
+
+     midfight_blue   BIGINT                 NOT NULL,
+     midfight_red    BIGINT                 NOT NULL,
+
+     scout_kills     BIGINT                 NOT NULL,
+     soldier_kills   BIGINT                 NOT NULL,
+     pyro_kills      BIGINT                 NOT NULL,
+     demoman_kills   BIGINT                 NOT NULL,
+     heavy_kills     BIGINT                 NOT NULL,
+     engineer_kills  BIGINT                 NOT NULL,
+     medic_kills     BIGINT                 NOT NULL,
+     sniper_kills    BIGINT                 NOT NULL,
+     spy_kills       BIGINT                 NOT NULL,
+
+     scout_deaths    BIGINT                 NOT NULL,
+     soldier_deaths  BIGINT                 NOT NULL,
+     pyro_deaths     BIGINT                 NOT NULL,
+     demoman_deaths  BIGINT                 NOT NULL,
+     heavy_deaths    BIGINT                 NOT NULL,
+     engineer_deaths BIGINT                 NOT NULL,
+     medic_deaths    BIGINT                 NOT NULL,
+     sniper_deaths   BIGINT                 NOT NULL,
+     spy_deaths      BIGINT                 NOT NULL,
+
+     scout_damage    BIGINT                 NOT NULL,
+     soldier_damage  BIGINT                 NOT NULL,
+     pyro_damage     BIGINT                 NOT NULL,
+     demoman_damage  BIGINT                 NOT NULL,
+     heavy_damage    BIGINT                 NOT NULL,
+     engineer_damage BIGINT                 NOT NULL,
+     medic_damage    BIGINT                 NOT NULL,
+     sniper_damage   BIGINT                 NOT NULL,
+     spy_damage      BIGINT                 NOT NULL,
+
+     play_time       BIGINT                 NOT NULL
+);
+
+CREATE UNIQUE INDEX map_stats_map_idx
+    ON map_stats USING BTREE (map);
+
+CREATE INDEX map_stats_count_idx
+    ON map_stats USING BTREE (count);
+
+CREATE OR REPLACE FUNCTION update_map_stats() RETURNS trigger AS $$
+BEGIN
+    INSERT INTO map_stats (
+            map,
+            count,
+            red_wins,
+            blue_wins,
+            red_score,
+            blue_score,
+            midfight_blue,
+            midfight_red,
+            scout_kills,
+            soldier_kills,
+            pyro_kills,
+            demoman_kills,
+            heavy_kills,
+            engineer_kills,
+            medic_kills,
+            sniper_kills,
+            spy_kills,
+            scout_deaths,
+            soldier_deaths,
+            pyro_deaths,
+            demoman_deaths,
+            heavy_deaths,
+            engineer_deaths,
+            medic_deaths,
+            sniper_deaths,
+            spy_deaths,
+            scout_damage,
+            soldier_damage,
+            pyro_damage,
+            demoman_damage,
+            heavy_damage,
+            engineer_damage,
+            medic_damage,
+            sniper_damage,
+            spy_damage,
+            play_time)
+        (SELECT
+             map,
+             1,
+             red_wins,
+             blue_wins,
+             red_score,
+             blue_score,
+             midfight_red,
+             midfight_blue,
+             scout_kills,
+             soldier_kills,
+             pyro_kills,
+             demoman_kills,
+             heavy_kills,
+             engineer_kills,
+             medic_kills,
+             sniper_kills,
+             spy_kills,
+             scout_deaths,
+             soldier_deaths,
+             pyro_deaths,
+             demoman_deaths,
+             heavy_deaths,
+             engineer_deaths,
+             medic_deaths,
+             sniper_deaths,
+             spy_deaths,
+             scout_damage,
+             soldier_damage,
+             pyro_damage,
+             demoman_damage,
+             heavy_damage,
+             engineer_damage,
+             medic_damage,
+             sniper_damage,
+             spy_damage,
+             length as play_time
+        FROM log_map_stats WHERE id = NEW.id AND map != '')
+    ON CONFLICT (map) DO
+        UPDATE SET count = map_stats.count + 1,
+                   red_wins = map_stats.red_wins + EXCLUDED.red_wins,
+                   blue_wins = map_stats.blue_wins + EXCLUDED.blue_wins,
+                   red_score = map_stats.red_score + EXCLUDED.red_score,
+                   blue_score = map_stats.blue_score + EXCLUDED.blue_score,
+                   midfight_blue = map_stats.midfight_blue + EXCLUDED.midfight_blue,
+                   midfight_red = map_stats.midfight_red + EXCLUDED.midfight_red,
+                   scout_kills = map_stats.scout_kills + EXCLUDED.scout_kills,
+                   soldier_kills = map_stats.soldier_kills + EXCLUDED.soldier_kills,
+                   pyro_kills = map_stats.pyro_kills + EXCLUDED.pyro_kills,
+                   demoman_kills = map_stats.demoman_kills + EXCLUDED.demoman_kills,
+                   heavy_kills = map_stats.heavy_kills + EXCLUDED.heavy_kills,
+                   engineer_kills = map_stats.engineer_kills + EXCLUDED.engineer_kills,
+                   medic_kills = map_stats.medic_kills + EXCLUDED.medic_kills,
+                   sniper_kills = map_stats.sniper_kills + EXCLUDED.sniper_kills,
+                   spy_kills = map_stats.spy_kills + EXCLUDED.spy_kills,
+                   scout_deaths = map_stats.scout_deaths + EXCLUDED.scout_deaths,
+                   soldier_deaths = map_stats.soldier_deaths + EXCLUDED.soldier_deaths,
+                   pyro_deaths = map_stats.pyro_deaths + EXCLUDED.pyro_deaths,
+                   demoman_deaths = map_stats.demoman_deaths + EXCLUDED.demoman_deaths,
+                   heavy_deaths = map_stats.heavy_deaths + EXCLUDED.heavy_deaths,
+                   engineer_deaths = map_stats.engineer_deaths + EXCLUDED.engineer_deaths,
+                   medic_deaths = map_stats.medic_deaths + EXCLUDED.medic_deaths,
+                   sniper_deaths = map_stats.sniper_deaths + EXCLUDED.sniper_deaths,
+                   spy_deaths = map_stats.spy_deaths + EXCLUDED.spy_deaths,
+                   scout_damage = map_stats.scout_damage + EXCLUDED.scout_damage,
+                   soldier_damage = map_stats.soldier_damage + EXCLUDED.soldier_damage,
+                   pyro_damage = map_stats.pyro_damage + EXCLUDED.pyro_damage,
+                   demoman_damage = map_stats.demoman_damage + EXCLUDED.demoman_damage,
+                   heavy_damage = map_stats.heavy_damage + EXCLUDED.heavy_damage,
+                   engineer_damage = map_stats.engineer_damage + EXCLUDED.engineer_damage,
+                   medic_damage = map_stats.medic_damage + EXCLUDED.medic_damage,
+                   sniper_damage = map_stats.sniper_damage + EXCLUDED.sniper_damage,
+                   spy_damage = map_stats.spy_damage + EXCLUDED.spy_damage,
+                   play_time = map_stats.play_time + EXCLUDED.play_time;
+    RETURN NEW;
+END;
+$$
+    LANGUAGE PLPGSQL;
+
+CREATE TRIGGER update_map_stats_on_log
+    AFTER INSERT OR UPDATE ON logs_raw
+    FOR EACH ROW
+EXECUTE PROCEDURE update_map_stats();
