@@ -233,9 +233,130 @@ SELECT
 FROM logs_raw, jsonb_each(json->'players') p
 WHERE (p.value->'drops')::BIGINT > 0 OR (p.value->'ubers')::BIGINT > 0;
 
+CREATE OR REPLACE  FUNCTION map_is_stopwatch(map TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+    IF map LIKE 'pl_%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_steel%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_gravelpit%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_dustbowl%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_egypt%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_degrootkeep%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_gorge%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_junction%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_mossrock%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_manor%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_snowplow%' THEN
+        RETURN true;
+    END IF;
+    IF map LIKE 'cp_alloy%' THEN
+        RETURN true;
+    END IF;
+
+    RETURN false;
+END;
+$$
+    LANGUAGE PLPGSQL;
+
 CREATE OR REPLACE  FUNCTION get_team_score(json JSONB, team team) RETURNS BIGINT AS $$
-    SELECT coalesce((json->'teams'->(team::TEXT)->'score')::BIGINT, 0);
-$$ LANGUAGE SQL;
+DECLARE
+    score BIGINT;
+BEGIN
+    -- old logs have stopwatch rounds counted differently
+    IF NOT (coalesce(json->'info'->>'AD_scoring', 'false') = 'true') AND map_is_stopwatch(json->'info'->>'map') THEN
+        IF get_stopwatch_winner(json) = team THEN
+            return 1;
+        ELSE
+            return 0;
+        END IF;
+    ELSE
+        SELECT coalesce((json->'teams'->(team::TEXT)->'score')::BIGINT, 0) INTO score;
+
+        return score;
+    END IF;
+END;
+$$ LANGUAGE PLPGSQL;
+
+CREATE OR REPLACE FUNCTION get_stopwatch_winner(json JSONB) RETURNS team AS $$
+DECLARE
+    first_round_caps BIGINT;
+    second_round_caps BIGINT;
+    first_round_length BIGINT;
+    first_round_full_length BIGINT;
+    second_round_length BIGINT;
+    second_round_first_event_time BIGINT;
+BEGIN
+    IF jsonb_path_exists(json, '$.rounds') THEN
+        SELECT coalesce(MAX((e.value->>'point')::INT), 0), coalesce(MAX((e.value->>'time')::INT), 0) INTO first_round_caps, first_round_length
+            FROM jsonb_array_elements(json->'rounds'->0->'events') e WHERE e.value->>'type' = 'pointcap';
+        SELECT coalesce(MAX((e.value->>'point')::INT), 0), coalesce(MAX((e.value->>'time')::INT), 0) INTO second_round_caps, second_round_length
+            FROM jsonb_array_elements(json->'rounds'->1->'events') e WHERE (e.value->>'type' = 'pointcap' OR (e.value->>'type' = 'round_win' AND e.value->>'team' = 'Blue'));
+        SELECT coalesce(MIN((e.value->>'time')::INT), 0) INTO second_round_first_event_time
+            FROM jsonb_array_elements(json->'rounds'->1->'events') e;
+        SELECT coalesce(MAX((e.value->>'time')::INT), 0) INTO first_round_full_length
+        FROM jsonb_array_elements(json->'rounds'->1->'events') e;
+
+        -- old format doesn't properly log the last cap when last is capped in second round
+        IF json->'rounds'->1->>'winner' = 'Blue' AND second_round_caps < first_round_caps THEN
+            second_round_caps := second_round_caps + 1;
+        END IF;
+    ELSE
+        SELECT coalesce(MAX((e.value->>'point')::INT), 0), coalesce(MAX((e.value->>'time')::INT), 0) INTO first_round_caps, first_round_length
+            FROM jsonb_array_elements(json->'info'->'rounds'->0->'events') e WHERE e.value->>'type' = 'pointcap';
+        SELECT coalesce(MAX((e.value->>'point')::INT), 0), coalesce(MAX((e.value->>'time')::INT), 0) INTO second_round_caps, second_round_length
+            FROM jsonb_array_elements(json->'info'->'rounds'->1->'events') e WHERE (e.value->>'type' = 'pointcap' OR (e.value->>'type' = 'round_win' AND e.value->>'team' = 'Blue'));
+        SELECT coalesce(MIN((e.value->>'time')::INT), 0) INTO second_round_first_event_time
+            FROM jsonb_array_elements(json->'info'->'rounds'->1->'events') e;
+        SELECT coalesce(MAX((e.value->>'time')::INT), 0) INTO first_round_full_length
+        FROM jsonb_array_elements(json->'info'->'rounds'->1->'events') e;
+
+        -- old format doesn't properly log the last cap when last is capped in second round
+        IF json->'info'->'rounds'->1->>'winner' = 'Blue' AND second_round_caps < first_round_caps THEN
+            second_round_caps := second_round_caps + 1;
+        END IF;
+    END IF;
+
+    IF second_round_first_event_time > first_round_length THEN
+        second_round_length := second_round_length - first_round_full_length;
+    END IF;
+
+    -- both teams capped the same number of points
+    IF first_round_caps = second_round_caps THEN
+        -- first team (counted as blue) capped faster
+        IF first_round_length < second_round_length THEN
+            return 'Blue';
+        ELSE
+            return 'Red';
+        END IF;
+    -- first team capped more
+    ELSEIF first_round_caps > second_round_caps THEN
+        return 'Blue';
+    -- second team capped more
+    ELSE
+        return 'Red';
+    END IF;
+END;
+$$
+    LANGUAGE PLPGSQL;
 
 CREATE OR REPLACE  FUNCTION get_class_kills(json JSONB, class_name class_type) RETURNS BIGINT AS $$
     SELECT coalesce(sum((c.value->>'kills')::BIGINT)::BIGINT, 0) FROM jsonb_each(json->'players') p, jsonb_array_elements(p.value->'class_stats') c WHERE c.value->>'type' = class_name::TEXT AND LENGTH(c.value->>'kills') < 3;
@@ -253,9 +374,26 @@ CREATE OR REPLACE FUNCTION get_midfight_wins(json JSONB, team team) RETURNS BIGI
     SELECT count(*) FROM jsonb_array_elements(json->'rounds') r WHERE r->>'firstcap' = team::TEXT;
 $$ LANGUAGE SQL;
 
-CREATE FUNCTION get_wins(a_score BIGINT, b_score BIGINT) RETURNS BIGINT AS $$
+CREATE OR REPLACE  FUNCTION get_other_team(team team) RETURNS team AS $$
 BEGIN
-    IF a_score > b_score THEN
+    IF team = 'Red' THEN
+        return 'Blue';
+    ELSE
+        return 'Red';
+    END IF;
+END;
+$$
+    LANGUAGE PLPGSQL;
+
+CREATE OR REPLACE FUNCTION get_wins(json JSONB, team team) RETURNS BIGINT AS $$
+DECLARE
+    team_score BIGINT;
+    other_score BIGINT;
+BEGIN
+    team_score := get_team_score(json, team);
+    other_score := get_team_score(json, get_other_team(team));
+
+    IF team_score > other_score THEN
         return 1;
     ELSE
         return 0;
@@ -271,8 +409,8 @@ CREATE VIEW log_map_stats AS
         clean_map_name(json->'info'->>'map') as map,
         get_team_score(json, 'Red') AS red_score,
         get_team_score(json, 'Blue') AS blue_score,
-        get_wins(get_team_score(json, 'Red'), get_team_score(json, 'Blue')) AS red_wins,
-        get_wins(get_team_score(json, 'Blue'), get_team_score(json, 'Red')) AS blue_wins,
+        get_wins(json, 'Red') AS red_wins,
+        get_wins(json, 'Blue') AS blue_wins,
 
         get_midfight_wins(json, 'Red') as midfight_red,
         get_midfight_wins(json, 'Blue') as midfight_blue,
