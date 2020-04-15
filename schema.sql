@@ -232,22 +232,23 @@ END;
 $$
     LANGUAGE PLPGSQL;
 
-CREATE MATERIALIZED VIEW common_player_names AS
-    SELECT steam_id, name, count, use_time
+CREATE MATERIALIZED VIEW medic_names AS
+    SELECT player_names.steam_id, name, count, use_time
     FROM player_names
-    WHERE count > 100;
+    INNER JOIN medic_stats ON player_names.steam_id = medic_stats.steam_id
+    WHERE count > 10;
 
-CREATE UNIQUE INDEX common_player_names_steam_id_name_idx
-    ON common_player_names USING BTREE (steam_id, name);
+CREATE UNIQUE INDEX medic_names_steam_id_name_idx
+    ON medic_names USING BTREE (steam_id, name);
 
-CREATE INDEX common_player_names_steam_id_idx
-    ON common_player_names USING BTREE (steam_id);
+CREATE INDEX medic_names_steam_id_idx
+    ON medic_names USING BTREE (steam_id);
 
-CREATE INDEX common_player_names_count_idx
-    ON common_player_names USING BTREE (count);
+CREATE INDEX medic_names_count_idx
+    ON medic_names USING BTREE (count);
 
-CREATE INDEX common_player_names_search_idx
-    ON common_player_names USING GIN (name gin_trgm_ops);
+CREATE INDEX medic_names_search_idx
+    ON medic_names USING GIN (name gin_trgm_ops);
 
 
 CREATE MATERIALIZED VIEW user_names AS
