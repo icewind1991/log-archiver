@@ -148,6 +148,39 @@ CREATE TRIGGER update_stats_on_log
     FOR EACH ROW
 EXECUTE PROCEDURE update_medic_stats();
 
+CREATE MATERIALIZED VIEW ranked_medic_stats AS
+    SELECT user_names.steam_id, name, games, ubers, drops, medic_time, dps, dpu, dpg,
+           RANK () OVER (
+               ORDER BY drops DESC
+           ) as drops_rank,
+           RANK () OVER (
+               ORDER BY dpu DESC
+           ) as dpu_rank,
+           RANK () OVER (
+               ORDER BY dps DESC
+           ) as dps_rank,
+           RANK () OVER (
+               ORDER BY dpg DESC
+           ) as dpg_rank
+    FROM medic_stats
+    INNER JOIN user_names ON user_names.steam_id = medic_stats.steam_id AND medic_stats.steam_id NOT LIKE 'BOT%'
+    WHERE drops > 100;
+
+CREATE UNIQUE INDEX ranked_medic_stats_steam_id_idx
+    ON ranked_medic_stats USING BTREE (steam_id);
+
+CREATE INDEX ranked_medic_stats_drops_idx
+    ON ranked_medic_stats USING BTREE (drops);
+
+CREATE INDEX ranked_medic_stats_dps_idx
+    ON ranked_medic_stats USING BTREE (dps);
+
+CREATE INDEX ranked_medic_stats_dpu_idx
+    ON ranked_medic_stats USING BTREE (dpu);
+
+CREATE INDEX ranked_medic_stats_dpg_idx
+    ON ranked_medic_stats USING BTREE (dpg);
+
 CREATE VIEW log_medic_stats AS
     SELECT
         id,
@@ -177,6 +210,12 @@ CREATE TABLE player_names (
 CREATE UNIQUE INDEX player_names_steam_id_name_idx
     ON player_names USING BTREE (steam_id, name);
 
+CREATE INDEX player_names_steam_id_idx
+    ON player_names USING BTREE (steam_id);
+
+CREATE INDEX player_names_count_idx
+    ON player_names USING BTREE (count);
+
 CREATE INDEX player_names_search_idx
     ON player_names USING GIN (name gin_trgm_ops);
 
@@ -193,10 +232,23 @@ END;
 $$
     LANGUAGE PLPGSQL;
 
-CREATE TRIGGER update_names_on_log
-    AFTER INSERT OR UPDATE ON logs_raw
-    FOR EACH ROW
-EXECUTE PROCEDURE update_player_names();
+CREATE MATERIALIZED VIEW common_player_names AS
+    SELECT steam_id, name, count, use_time
+    FROM player_names
+    WHERE count > 100;
+
+CREATE UNIQUE INDEX common_player_names_steam_id_name_idx
+    ON common_player_names USING BTREE (steam_id, name);
+
+CREATE INDEX common_player_names_steam_id_idx
+    ON common_player_names USING BTREE (steam_id);
+
+CREATE INDEX common_player_names_count_idx
+    ON common_player_names USING BTREE (count);
+
+CREATE INDEX common_player_names_search_idx
+    ON common_player_names USING GIN (name gin_trgm_ops);
+
 
 CREATE MATERIALIZED VIEW user_names AS
     WITH names AS
