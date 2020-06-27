@@ -673,3 +673,18 @@ CREATE TRIGGER update_map_stats_on_log
     AFTER INSERT OR UPDATE ON logs_raw
     FOR EACH ROW
 EXECUTE PROCEDURE update_map_stats();
+
+CREATE TABLE vanity_urls (
+    steam_id     TEXT                        NOT NULL,
+    url          TEXT                        NOT NULL,
+    time         TIMESTAMP WITHOUT TIME ZONE NOT NULL
+);
+
+ALTER TABLE ONLY vanity_urls
+    ALTER COLUMN url SET DEFAULT now();
+
+CREATE UNIQUE INDEX vanity_urls_steam_id_idx
+    ON vanity_urls USING BTREE (steam_id);
+
+CREATE UNIQUE INDEX vanity_urls_url_idx
+    ON vanity_urls USING BTREE (time);
