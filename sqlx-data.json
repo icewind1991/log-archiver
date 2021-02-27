@@ -1,0 +1,34 @@
+{
+  "db": "PostgreSQL",
+  "bcd0843c15afc0443df1ab40d7d0c5632ab9d025cdcf3646f4e9d5872b7c8c89": {
+    "query": "INSERT INTO logs_raw(id, json) VALUES($1, $2)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Jsonb"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "e4dfb1fbca2c91ac837d11aff64e035ccce38867e3503653ec2ef28eeeb8907d": {
+    "query": "SELECT MAX(id) AS last_archived FROM logs_raw",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "last_archived",
+          "type_info": "Int4"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        null
+      ]
+    }
+  }
+}

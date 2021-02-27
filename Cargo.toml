@@ -5,7 +5,7 @@ authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 
 [dependencies]
-sqlx = { version = "0.5", default_features = false, features = ["macros", "postgres", "json", "runtime-actix-rustls"] }
+sqlx = { version = "0.5", default_features = false, features = ["macros", "postgres", "json", "runtime-actix-rustls", "offline"] }
 dotenv = "0.15"
 main_error = "0.1"
 tokio = { version = "1", features = ["macros", "time"] }
