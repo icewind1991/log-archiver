@@ -5,11 +5,11 @@ authors = ["Robin Appelman <robin@icewind.nl>"]
 edition = "2018"
 
 [dependencies]
-sqlx = { version = "0.3.2", default_features = false, features = ["macros", "postgres", "json", "runtime-tokio"] }
-dotenv = "0.15.0"
-main_error = "0.1.0"
-tokio = { version = "0.2.13", features = ["macros", "time"] }
-reqwest = { version = "0.10.4", features = [] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+sqlx = { version = "0.5", default_features = false, features = ["macros", "postgres", "json", "runtime-actix-rustls"] }
+dotenv = "0.15"
+main_error = "0.1"
+tokio = { version = "1", features = ["macros", "time"] }
+reqwest = { version = "0.11", default-features = false , features = ["rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }

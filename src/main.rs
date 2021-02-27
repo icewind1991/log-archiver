@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
 use std::time::Duration;
-use tokio::time::delay_for;
+use tokio::time::sleep;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
@@ -18,7 +18,7 @@ async fn main() -> Result<(), MainError> {
             eprintln!("{:?}", e);
         }
 
-        delay_for(Duration::from_secs(60)).await;
+        sleep(Duration::from_secs(60)).await;
     }
 }
 
@@ -44,7 +44,7 @@ async fn get_last_demo(client: &Client, api_base: &str) -> Result<i32, MainError
 }
 
 async fn archive(database_url: &str, api_base: &str) -> Result<(), MainError> {
-    let pool = PgPool::builder().max_size(2).build(database_url).await?;
+    let pool = PgPool::connect(database_url).await?;
 
     let client = reqwest::Client::new();
 
@@ -62,7 +62,7 @@ async fn archive(database_url: &str, api_base: &str) -> Result<(), MainError> {
 
         println!("{}", last_archived);
 
-        delay_for(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(200)).await;
 
         let response: Response = client
             .get(&format!("{}/{}", api_base, last_archived))
