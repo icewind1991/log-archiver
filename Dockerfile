@@ -10,7 +10,8 @@ RUN mkdir src && \
 
 COPY src/ ./src/
 COPY sqlx-data.json ./
-RUN sudo chown -R rust:rust .
+RUN sudo chown -R rust:rust . && \
+  touch src/main.rs
 
 RUN cargo build --release
 
