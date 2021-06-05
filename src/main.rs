@@ -4,6 +4,7 @@ use reqwest::{Client, Response};
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::postgres::PgPool;
+use std::env::args;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -16,13 +17,29 @@ async fn main() -> Result<(), MainError> {
     let api_host = dotenv::var("API_HOST").unwrap_or_else(|_| "https://logs.tf".to_string());
     let log_target = PathBuf::from(dotenv::var("LOG_TARGET")?);
 
-    loop {
-        if let Err(e) = archive(&database_url, &api_host, &log_target).await {
-            eprintln!("{:?}", e);
-        }
+    let args = args();
 
-        sleep(Duration::from_secs(60)).await;
+    if args.len() > 1 {
+        let mut args = args.skip(1);
+        let from: i32 = args.next().unwrap().parse()?;
+        let to: i32 = args.next().unwrap().parse()?;
+        let client = reqwest::Client::new();
+        for id in from..=to {
+            println!("downloading {}", id);
+
+            download_log(&api_host, &log_target, &client, id).await?;
+            sleep(Duration::from_millis(200)).await;
+        }
+    } else {
+        loop {
+            if let Err(e) = archive(&database_url, &api_host, &log_target).await {
+                eprintln!("{:?}", e);
+            }
+
+            sleep(Duration::from_secs(60)).await;
+        }
     }
+    Ok(())
 }
 
 async fn get_last_demo(client: &Client, api_host: &str) -> Result<i32, MainError> {
@@ -81,16 +98,34 @@ async fn archive(database_url: &str, api_host: &str, log_target: &Path) -> Resul
         .execute(&pool)
         .await?;
 
-        let log_zip = client
-            .get(&format!("{}/logs/log_{}.log.zip", api_host, last_archived))
-            .send()
-            .await?
-            .bytes()
-            .await?;
-        let mut archive = ZipArchive::new(Cursor::new(&log_zip))?;
-        archive.extract(log_target)?;
+        download_log(api_host, log_target, &client, last_archived).await?;
     }
 
+    Ok(())
+}
+
+async fn download_log(
+    api_host: &str,
+    log_target: &Path,
+    client: &Client,
+    id: i32,
+) -> Result<(), MainError> {
+    let log_zip = client
+        .get(&format!("{}/logs/log_{}.log.zip", api_host, id))
+        .send()
+        .await?
+        .bytes()
+        .await?;
+    let mut archive = match ZipArchive::new(Cursor::new(&log_zip)) {
+        Ok(archive) => archive,
+        Err(e) => {
+            eprintln!("Error extracting log: {:#}", e);
+            return Ok(());
+        }
+    };
+    if let Err(e) = archive.extract(&log_target) {
+        eprintln!("Error extracting log: {:#}", e);
+    }
     Ok(())
 }
 
