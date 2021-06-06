@@ -123,10 +123,28 @@ async fn download_log(
             return Ok(());
         }
     };
-    if let Err(e) = archive.extract(&log_target) {
+    if let Err(e) = archive.extract(log_path(log_target, id)) {
         eprintln!("Error extracting log: {:#}", e);
     }
     Ok(())
+}
+
+fn log_path<P: AsRef<Path>>(log_target: P, id: i32) -> PathBuf {
+    log_target.as_ref().join(format!(
+        "{:07}/{:07}",
+        id / 1_000_000 * 1_000_000,
+        id / 1_000 * 1_000
+    ))
+}
+
+#[test]
+fn test_log_path() {
+    assert_eq!(
+        PathBuf::from("foo/2000000/2123000"),
+        log_path("foo", 2123456)
+    );
+    assert_eq!(PathBuf::from("foo/0000000/0000000"), log_path("foo", 2));
+    assert_eq!(PathBuf::from("foo/0000000/0001000"), log_path("foo", 1_002));
 }
 
 #[derive(Debug, Deserialize)]
