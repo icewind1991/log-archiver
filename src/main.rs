@@ -36,7 +36,7 @@ async fn main() -> Result<(), MainError> {
                 eprintln!("{:?}", e);
             }
 
-            sleep(Duration::from_secs(60)).await;
+            sleep(Duration::from_secs(300)).await;
         }
     }
     Ok(())
@@ -82,7 +82,7 @@ async fn archive(database_url: &str, api_host: &str, log_target: &Path) -> Resul
 
         println!("{}", last_archived);
 
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(500)).await;
 
         let response: Response = client
             .get(&format!("{}/api/v1/log/{}", api_host, last_archived))
