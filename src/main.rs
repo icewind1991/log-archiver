@@ -66,7 +66,7 @@ async fn get_last_demo(client: &Client, api_host: &str) -> Result<i32, MainError
 async fn archive(database_url: &str, api_host: &str, log_target: &Path) -> Result<(), MainError> {
     let pool = PgPool::connect(database_url).await?;
 
-    let client = reqwest::Client::new();
+    let client = Client::new();
 
     let row = sqlx::query!("SELECT MAX(id) AS last_archived FROM logs_raw")
         .fetch_one(&pool)
