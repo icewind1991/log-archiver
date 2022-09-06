@@ -190,7 +190,10 @@ CREATE VIEW log_medic_stats AS
         (p.value->'ubers')::BIGINT AS ubers,
         (json->'info'->'total_length')::BIGINT AS length
     FROM logs_raw, jsonb_each(json->'players') p
-    WHERE (p.value->'drops')::BIGINT > 0 OR (p.value->'ubers')::BIGINT > 0;
+    WHERE (
+        (p.value->'drops')::BIGINT > 0 OR (p.value->'ubers')::BIGINT > 0
+        AND (p.value->'drops')::BIGINT < 15
+    );
 
 CREATE VIEW log_player_names AS
 SELECT
@@ -269,6 +272,9 @@ CREATE UNIQUE INDEX user_names_steam_id_idx
 CREATE MATERIALIZED VIEW global_stats AS
     SELECT SUM(drops)::BIGINT as drops, SUM(ubers)::BIGINT as ubers, SUM(games)::BIGINT as games, SUM(medic_time)::BIGINT as medic_time
     FROM medic_stats;
+
+CREATE UNIQUE INDEX global_stats_idx
+    ON global_stats USING BTREE (drops);
 
 CREATE FUNCTION clean_map_name(map TEXT) RETURNS TEXT AS $$
         SELECT regexp_replace(map, '(_(a|b|beta|u|r|v|rc|final|comptf|ugc)?[0-9]*[a-z]?$)|([0-9]+[a-z]?$)', '', 'g');
