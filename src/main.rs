@@ -13,9 +13,9 @@ use zip::ZipArchive;
 
 #[tokio::main]
 async fn main() -> Result<(), MainError> {
-    let database_url = dotenv::var("DATABASE_URL")?;
-    let api_host = dotenv::var("API_HOST").unwrap_or_else(|_| "https://logs.tf".to_string());
-    let log_target = PathBuf::from(dotenv::var("LOG_TARGET")?);
+    let database_url = dotenvy::var("DATABASE_URL")?;
+    let api_host = dotenvy::var("API_HOST").unwrap_or_else(|_| "https://logs.tf".to_string());
+    let log_target = PathBuf::from(dotenvy::var("LOG_TARGET")?);
 
     let args = args();
 
